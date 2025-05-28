@@ -5,30 +5,29 @@ import pandas as pd
 import re
 import tempfile
 import os
+import unicodedata
 
 app = Flask(__name__)
-CORS(app)
+CORS(app)  # Permite acesso externo (ex: frontend GitHub Pages)
 
-# Função para extrair data da emissão
+# 🔹 Normaliza texto para remover acentos
+def normalizar(texto):
+    return unicodedata.normalize("NFKD", texto).encode("ASCII", "ignore").decode().upper()
+
+# 🔹 Extrai data de emissão da nota
 def extrair_data_emissao(texto):
-    match = re.search(r'DATA DA EMISSÃO\s*(\d{2}/\d{2}/\d{4})', texto)
+    match = re.search(r'DATA DA EMISS[AÃ]O\s*(\d{2}/\d{2}/\d{4})', texto)
     if match:
         return match.group(1)
     return ""
 
-# Função para extrair dados dos produtos, mesmo com descrição quebrada em 2 linhas
-import unicodedata
-
-def normalizar(texto):
-    return unicodedata.normalize("NFKD", texto).encode("ASCII", "ignore").decode().upper()
-
+# 🔹 Extrai produtos com 15 colunas, aceita descrição em 1 ou 2 linhas
 def extrair_dados(texto, nome_arquivo, data_emissao):
     linhas = texto.split('\n')
     dados_produtos = []
 
-    # Normaliza as linhas para facilitar a busca da âncora
+    # Localiza a âncora "DADOS DO PRODUTO/SERVIÇO"
     linhas_normalizadas = [normalizar(l) for l in linhas]
-
     try:
         idx_inicio = next(
             i for i, linha in enumerate(linhas_normalizadas)
@@ -36,7 +35,7 @@ def extrair_dados(texto, nome_arquivo, data_emissao):
         )
         linhas = linhas[idx_inicio + 1:]
     except StopIteration:
-        return []  # âncora não encontrada
+        return []
 
     buffer_descricao = ""
     i = 0
@@ -44,57 +43,61 @@ def extrair_dados(texto, nome_arquivo, data_emissao):
         linha = linhas[i].strip()
         partes = linha.split()
 
-        if len(partes) == 15:
-            try:
-                aliq_ipi    = partes[-1]
-                aliq_icms   = partes[-2]
-                vlr_ipi     = partes[-3]
-                vlr_icms    = partes[-4]
-                bc_icms     = partes[-5]
-                vlr_total   = partes[-6]
-                vlr_desc    = partes[-7]
-                vlr_unit    = partes[-8]
-                qtd         = partes[-9]
-                unid        = partes[-10]
-                cfop        = partes[-11]
-                cst         = partes[-12]
-                ncm         = partes[-13]
-                codigo      = partes[-14]
-                descricao   = buffer_descricao.strip()
+        if len(partes) >= 15:
+            ultimos_15 = partes[-15:]
+            tem_numeros = sum(1 for p in ultimos_15 if "," in p or p.replace('.', '').isdigit())
 
-                dados_produtos.append({
-                    "arquivo": nome_arquivo,
-                    "data_emissao": data_emissao,
-                    "codigo": codigo,
-                    "descricao": descricao,
-                    "ncm": ncm,
-                    "cst": cst,
-                    "cfop": cfop,
-                    "unid": unid,
-                    "qtd": qtd,
-                    "vlr_unit": vlr_unit,
-                    "vlr_desc": vlr_desc,
-                    "vlr_total": vlr_total,
-                    "bc_icms": bc_icms,
-                    "vlr_icms": vlr_icms,
-                    "vlr_ipi": vlr_ipi,
-                    "aliq_icms": aliq_icms,
-                    "aliq_ipi": aliq_ipi
-                })
+            if tem_numeros >= 10:  # linha técnica
+                try:
+                    aliq_ipi    = ultimos_15[-1]
+                    aliq_icms   = ultimos_15[-2]
+                    vlr_ipi     = ultimos_15[-3]
+                    vlr_icms    = ultimos_15[-4]
+                    bc_icms     = ultimos_15[-5]
+                    vlr_total   = ultimos_15[-6]
+                    vlr_desc    = ultimos_15[-7]
+                    vlr_unit    = ultimos_15[-8]
+                    qtd         = ultimos_15[-9]
+                    unid        = ultimos_15[-10]
+                    cfop        = ultimos_15[-11]
+                    cst         = ultimos_15[-12]
+                    ncm         = ultimos_15[-13]
+                    codigo      = ultimos_15[-14]
 
-                buffer_descricao = ""  # Limpa para o próximo produto
-            except Exception:
-                buffer_descricao = ""  # Mesmo se der erro, limpa
-        else:
-            buffer_descricao += " " + linha
+                    descricao = " ".join(partes[:-15]) if len(partes) > 15 else buffer_descricao.strip()
 
+                    dados_produtos.append({
+                        "arquivo": nome_arquivo,
+                        "data_emissao": data_emissao,
+                        "codigo": codigo,
+                        "descricao": descricao,
+                        "ncm": ncm,
+                        "cst": cst,
+                        "cfop": cfop,
+                        "unid": unid,
+                        "qtd": qtd,
+                        "vlr_unit": vlr_unit,
+                        "vlr_desc": vlr_desc,
+                        "vlr_total": vlr_total,
+                        "bc_icms": bc_icms,
+                        "vlr_icms": vlr_icms,
+                        "vlr_ipi": vlr_ipi,
+                        "aliq_icms": aliq_icms,
+                        "aliq_ipi": aliq_ipi
+                    })
+
+                    buffer_descricao = ""
+                    i += 1
+                    continue
+                except Exception:
+                    buffer_descricao = ""
+
+        buffer_descricao += " " + linha
         i += 1
 
     return dados_produtos
 
-
-
-
+# 🔹 Endpoint principal de upload
 @app.route("/upload", methods=["POST"])
 def upload():
     arquivos = request.files.getlist("arquivos")
@@ -115,6 +118,7 @@ def upload():
 
     return jsonify(all_dados)
 
+# 🔹 Download do último Excel gerado
 @app.route("/baixar")
 def baixar_excel():
     arquivo = app.config.get("ULTIMO_ARQUIVO")
@@ -122,10 +126,12 @@ def baixar_excel():
         return send_file(arquivo, as_attachment=True, download_name="resultado.xlsx")
     return "Nenhum arquivo gerado ainda.", 404
 
+# 🔹 Página inicial
 @app.route("/")
 def home():
     return "✅ API NFe está no ar!"
 
+# 🔹 Configuração de porta para Render
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
