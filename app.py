@@ -9,14 +9,18 @@ import os
 app = Flask(__name__)
 CORS(app)
 
-def extrair_data_emissao(texto):
-    match = re.search(r"\b\d{2}/\d{2}/\d{4}\b", texto)
-    return match.group(0) if match else "N/A"
-
+# Função para extrair dados dos PDFs
 def extrair_dados(texto, nome_arquivo):
     linhas = texto.split('\n')
     dados_produtos = []
-    data_emissao = extrair_data_emissao(texto)
+    buffer_descricao = ""
+    data_emissao = ""
+
+    # Buscar a data de emissão
+    for i, linha in enumerate(linhas):
+        if "DATA DA EMISSÃO" in linha.upper():
+            data_emissao = linhas[i + 1].strip()
+            break
 
     for linha in linhas:
         if re.match(r"^\d{6,}", linha) and "," in linha:
@@ -36,13 +40,17 @@ def extrair_dados(texto, nome_arquivo):
                 cst         = partes[-12]
                 ncm         = partes[-13]
                 codigo      = partes[0]
-                descricao   = " ".join(partes[1:-13])
+
+                # Combina buffer + linha atual
+                descricao_parte = " ".join(partes[1:-13])
+                descricao_completa = (buffer_descricao + " " + descricao_parte).strip()
+                buffer_descricao = ""  # limpa o buffer após o uso
 
                 dados_produtos.append({
                     "arquivo": nome_arquivo,
                     "data_emissao": data_emissao,
                     "codigo": codigo,
-                    "descricao": descricao,
+                    "descricao": descricao_completa,
                     "ncm": ncm,
                     "cst": cst,
                     "cfop": cfop,
@@ -59,6 +67,9 @@ def extrair_dados(texto, nome_arquivo):
                 })
             except:
                 continue
+        else:
+            buffer_descricao += " " + linha.strip()
+
     return dados_produtos
 
 @app.route("/upload", methods=["POST"])
@@ -67,10 +78,10 @@ def upload():
     all_dados = []
 
     for arquivo in arquivos:
-        nome = arquivo.filename
+        nome_arquivo = arquivo.filename
         with pdfplumber.open(arquivo) as pdf:
             texto = "".join([page.extract_text() for page in pdf.pages])
-        dados = extrair_dados(texto, nome)
+        dados = extrair_dados(texto, nome_arquivo)
         all_dados.extend(dados)
 
     df = pd.DataFrame(all_dados)
