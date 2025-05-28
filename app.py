@@ -8,25 +8,25 @@ import os
 import unicodedata
 
 app = Flask(__name__)
-CORS(app)  # Permite acesso externo (ex: frontend GitHub Pages)
+CORS(app)
 
-# 🔹 Normaliza texto para remover acentos
+# 🔹 Remove acentos
 def normalizar(texto):
     return unicodedata.normalize("NFKD", texto).encode("ASCII", "ignore").decode().upper()
 
-# 🔹 Extrai data de emissão da nota
+# 🔹 Extrai data da emissão
 def extrair_data_emissao(texto):
     match = re.search(r'DATA DA EMISS[AÃ]O\s*(\d{2}/\d{2}/\d{4})', texto)
     if match:
         return match.group(1)
     return ""
 
-# 🔹 Extrai produtos com 15 colunas, aceita descrição em 1 ou 2 linhas
+# 🔹 Extrai produtos com 15 campos técnicos, aceita descrição em 1 ou 2 linhas
 def extrair_dados(texto, nome_arquivo, data_emissao):
     linhas = texto.split('\n')
     dados_produtos = []
 
-    # Localiza a âncora "DADOS DO PRODUTO/SERVIÇO"
+    # Localiza a âncora
     linhas_normalizadas = [normalizar(l) for l in linhas]
     try:
         idx_inicio = next(
@@ -47,7 +47,7 @@ def extrair_dados(texto, nome_arquivo, data_emissao):
             ultimos_15 = partes[-15:]
             tem_numeros = sum(1 for p in ultimos_15 if "," in p or p.replace('.', '').isdigit())
 
-            if tem_numeros >= 10:  # linha técnica
+            if tem_numeros >= 10:
                 try:
                     aliq_ipi    = ultimos_15[-1]
                     aliq_icms   = ultimos_15[-2]
@@ -67,8 +67,6 @@ def extrair_dados(texto, nome_arquivo, data_emissao):
                     descricao = " ".join(partes[:-15]) if len(partes) > 15 else buffer_descricao.strip()
 
                     dados_produtos.append({
-                        "arquivo": nome_arquivo,
-                        "data_emissao": data_emissao,
                         "codigo": codigo,
                         "descricao": descricao,
                         "ncm": ncm,
@@ -83,7 +81,9 @@ def extrair_dados(texto, nome_arquivo, data_emissao):
                         "vlr_icms": vlr_icms,
                         "vlr_ipi": vlr_ipi,
                         "aliq_icms": aliq_icms,
-                        "aliq_ipi": aliq_ipi
+                        "aliq_ipi": aliq_ipi,
+                        "arquivo": nome_arquivo,
+                        "data_emissao": data_emissao
                     })
 
                     buffer_descricao = ""
@@ -97,7 +97,7 @@ def extrair_dados(texto, nome_arquivo, data_emissao):
 
     return dados_produtos
 
-# 🔹 Endpoint principal de upload
+# 🔹 Upload de PDFs
 @app.route("/upload", methods=["POST"])
 def upload():
     arquivos = request.files.getlist("arquivos")
@@ -111,14 +111,22 @@ def upload():
         dados = extrair_dados(texto, nome_arquivo, data_emissao)
         all_dados.extend(dados)
 
-    df = pd.DataFrame(all_dados)
+    # Ordem correta conforme DANFE
+    colunas_ordenadas = [
+        "codigo", "descricao", "ncm", "cst", "cfop", "unid", "qtd",
+        "vlr_unit", "vlr_desc", "vlr_total", "bc_icms", "vlr_icms",
+        "vlr_ipi", "aliq_icms", "aliq_ipi", "arquivo", "data_emissao"
+    ]
+
+    df = pd.DataFrame(all_dados)[colunas_ordenadas]
+
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
     df.to_excel(temp_file.name, index=False)
     app.config["ULTIMO_ARQUIVO"] = temp_file.name
 
     return jsonify(all_dados)
 
-# 🔹 Download do último Excel gerado
+# 🔹 Download do Excel
 @app.route("/baixar")
 def baixar_excel():
     arquivo = app.config.get("ULTIMO_ARQUIVO")
@@ -131,7 +139,7 @@ def baixar_excel():
 def home():
     return "✅ API NFe está no ar!"
 
-# 🔹 Configuração de porta para Render
+# 🔹 Configuração Render
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
