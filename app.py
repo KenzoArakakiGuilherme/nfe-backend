@@ -9,12 +9,14 @@ import os
 app = Flask(__name__)
 CORS(app)
 
+# Função para extrair data da emissão
 def extrair_data_emissao(texto):
     match = re.search(r'DATA DA EMISSÃO\s*(\d{2}/\d{2}/\d{4})', texto)
     if match:
         return match.group(1)
     return ""
 
+# Função para extrair dados dos produtos, mesmo com descrição quebrada em 2 linhas
 def extrair_dados(texto, nome_arquivo, data_emissao):
     linhas = texto.split('\n')
     dados_produtos = []
@@ -23,16 +25,26 @@ def extrair_dados(texto, nome_arquivo, data_emissao):
     while i < len(linhas):
         linha = linhas[i].strip()
 
-        if re.match(r"^\d{6,}", linha) and "," in linha:
-            linha_ativa = linha
+        if re.match(r"^\d{6,}", linha):
+            descricao_linha = linha
+            campos_linha = ""
 
+            # Verifica se a próxima linha contém os dados técnicos (valores etc.)
             if i + 1 < len(linhas):
-                prox_linha = linhas[i + 1].strip()
-                if not re.search(r"\d{2,}(\.\d{3})*,\d{2}", prox_linha) and not re.search(r"\d{4}", prox_linha):
-                    linha_ativa = linha + " " + prox_linha
-                    i += 1
+                proxima_linha = linhas[i + 1].strip()
 
-            partes = linha_ativa.split()
+                # Se a próxima linha contém muitos números e vírgulas, é a linha técnica
+                if re.search(r"\d{1,3},\d{2}", proxima_linha) and len(proxima_linha.split()) >= 13:
+                    campos_linha = proxima_linha
+                    i += 1  # avança 1 linha
+                else:
+                    descricao_linha += " " + proxima_linha
+                    if i + 2 < len(linhas):
+                        campos_linha = linhas[i + 2].strip()
+                        i += 2  # avança 2 linhas
+
+            partes = (descricao_linha + " " + campos_linha).strip().split()
+
             try:
                 aliq_ipi    = partes[-1]
                 aliq_icms   = partes[-2]
@@ -69,7 +81,7 @@ def extrair_dados(texto, nome_arquivo, data_emissao):
                     "aliq_icms": aliq_icms,
                     "aliq_ipi": aliq_ipi
                 })
-            except:
+            except Exception:
                 pass
 
         i += 1
