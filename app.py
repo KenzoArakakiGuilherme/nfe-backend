@@ -7,12 +7,16 @@ import tempfile
 import os
 
 app = Flask(__name__)
-CORS(app)  # ✅ Permite acesso do frontend (evita erro de CORS)
+CORS(app)
 
-# Função para extrair dados dos PDFs
-def extrair_dados(texto):
+def extrair_data_emissao(texto):
+    match = re.search(r"\b\d{2}/\d{2}/\d{4}\b", texto)
+    return match.group(0) if match else "N/A"
+
+def extrair_dados(texto, nome_arquivo):
     linhas = texto.split('\n')
     dados_produtos = []
+    data_emissao = extrair_data_emissao(texto)
 
     for linha in linhas:
         if re.match(r"^\d{6,}", linha) and "," in linha:
@@ -35,6 +39,8 @@ def extrair_dados(texto):
                 descricao   = " ".join(partes[1:-13])
 
                 dados_produtos.append({
+                    "arquivo": nome_arquivo,
+                    "data_emissao": data_emissao,
                     "codigo": codigo,
                     "descricao": descricao,
                     "ncm": ncm,
@@ -55,19 +61,18 @@ def extrair_dados(texto):
                 continue
     return dados_produtos
 
-# ✅ Rota para upload e extração dos dados (retorna JSON)
 @app.route("/upload", methods=["POST"])
 def upload():
     arquivos = request.files.getlist("arquivos")
     all_dados = []
 
     for arquivo in arquivos:
+        nome = arquivo.filename
         with pdfplumber.open(arquivo) as pdf:
             texto = "".join([page.extract_text() for page in pdf.pages])
-        dados = extrair_dados(texto)
+        dados = extrair_dados(texto, nome)
         all_dados.extend(dados)
 
-    # Salva Excel temporariamente para uso posterior
     df = pd.DataFrame(all_dados)
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
     df.to_excel(temp_file.name, index=False)
@@ -75,7 +80,6 @@ def upload():
 
     return jsonify(all_dados)
 
-# ✅ Rota para download manual do Excel
 @app.route("/baixar")
 def baixar_excel():
     arquivo = app.config.get("ULTIMO_ARQUIVO")
@@ -83,12 +87,10 @@ def baixar_excel():
         return send_file(arquivo, as_attachment=True, download_name="resultado.xlsx")
     return "Nenhum arquivo gerado ainda.", 404
 
-# Página inicial simples
 @app.route("/")
 def home():
     return "✅ API NFe está no ar!"
 
-# ⚙️ Configuração do host/porta para o Render
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
