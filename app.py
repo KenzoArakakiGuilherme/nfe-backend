@@ -21,12 +21,11 @@ def extrair_data_emissao(texto):
         return match.group(1)
     return ""
 
-# 🔹 Extrai produtos com 15 campos técnicos, aceita descrição em 1 ou 2 linhas
+# 🔹 Extrai produtos com descrição de 1 ou 2 linhas + 15 campos técnicos
 def extrair_dados(texto, nome_arquivo, data_emissao):
     linhas = texto.split('\n')
     dados_produtos = []
 
-    # Localiza a âncora
     linhas_normalizadas = [normalizar(l) for l in linhas]
     try:
         idx_inicio = next(
@@ -49,20 +48,20 @@ def extrair_dados(texto, nome_arquivo, data_emissao):
 
             if tem_numeros >= 10:
                 try:
-                    aliq_ipi    = ultimos_15[-1]
-                    aliq_icms   = ultimos_15[-2]
-                    vlr_ipi     = ultimos_15[-3]
-                    vlr_icms    = ultimos_15[-4]
-                    bc_icms     = ultimos_15[-5]
-                    vlr_total   = ultimos_15[-6]
-                    vlr_desc    = ultimos_15[-7]
-                    vlr_unit    = ultimos_15[-8]
-                    qtd         = ultimos_15[-9]
-                    unid        = ultimos_15[-10]
-                    cfop        = ultimos_15[-11]
-                    cst         = ultimos_15[-12]
-                    ncm         = ultimos_15[-13]
-                    codigo      = ultimos_15[-14]
+                    codigo      = ultimos_15[0]
+                    ncm         = ultimos_15[1]
+                    cst         = ultimos_15[2]
+                    cfop        = ultimos_15[3]
+                    unid        = ultimos_15[4]
+                    qtd         = ultimos_15[5]
+                    vlr_unit    = ultimos_15[6]
+                    vlr_desc    = ultimos_15[7]
+                    vlr_total   = ultimos_15[8]
+                    bc_icms     = ultimos_15[9]
+                    vlr_icms    = ultimos_15[10]
+                    vlr_ipi     = ultimos_15[11]
+                    aliq_icms   = ultimos_15[12]
+                    aliq_ipi    = ultimos_15[13]
 
                     descricao = " ".join(partes[:-15]) if len(partes) > 15 else buffer_descricao.strip()
 
@@ -111,7 +110,7 @@ def upload():
         dados = extrair_dados(texto, nome_arquivo, data_emissao)
         all_dados.extend(dados)
 
-    # Ordem correta conforme DANFE
+    # Ordem correta
     colunas_ordenadas = [
         "codigo", "descricao", "ncm", "cst", "cfop", "unid", "qtd",
         "vlr_unit", "vlr_desc", "vlr_total", "bc_icms", "vlr_icms",
@@ -134,12 +133,10 @@ def baixar_excel():
         return send_file(arquivo, as_attachment=True, download_name="resultado.xlsx")
     return "Nenhum arquivo gerado ainda.", 404
 
-# 🔹 Página inicial
 @app.route("/")
 def home():
     return "✅ API NFe está no ar!"
 
-# 🔹 Configuração Render
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
