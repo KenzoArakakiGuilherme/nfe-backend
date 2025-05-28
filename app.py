@@ -17,16 +17,26 @@ def extrair_data_emissao(texto):
     return ""
 
 # Função para extrair dados dos produtos, mesmo com descrição quebrada em 2 linhas
+import unicodedata
+
+def normalizar(texto):
+    return unicodedata.normalize("NFKD", texto).encode("ASCII", "ignore").decode().upper()
+
 def extrair_dados(texto, nome_arquivo, data_emissao):
     linhas = texto.split('\n')
     dados_produtos = []
 
-    # Começa a ler só após encontrar a âncora "DADOS DO PRODUTO/SERVIÇO"
+    # Normaliza as linhas para facilitar a busca da âncora
+    linhas_normalizadas = [normalizar(l) for l in linhas]
+
     try:
-        idx_inicio = next(i for i, linha in enumerate(linhas) if "DADOS DO PRODUTO" in linha.upper())
-        linhas = linhas[idx_inicio + 1:]  # ignora tudo antes da âncora
+        idx_inicio = next(
+            i for i, linha in enumerate(linhas_normalizadas)
+            if "PRODUTO" in linha and "SERVICO" in linha
+        )
+        linhas = linhas[idx_inicio + 1:]
     except StopIteration:
-        return []  # âncora não encontrada, evita erro
+        return []  # âncora não encontrada
 
     buffer_descricao = ""
     i = 0
@@ -34,7 +44,7 @@ def extrair_dados(texto, nome_arquivo, data_emissao):
         linha = linhas[i].strip()
         partes = linha.split()
 
-        if len(partes) == 15:  # linha técnica identificada
+        if len(partes) == 15:
             try:
                 aliq_ipi    = partes[-1]
                 aliq_icms   = partes[-2]
@@ -72,16 +82,16 @@ def extrair_dados(texto, nome_arquivo, data_emissao):
                     "aliq_ipi": aliq_ipi
                 })
 
-                buffer_descricao = ""  # limpa buffer para próximo produto
+                buffer_descricao = ""  # Limpa para o próximo produto
             except Exception:
-                buffer_descricao = ""  # falhou? limpa mesmo assim
-
+                buffer_descricao = ""  # Mesmo se der erro, limpa
         else:
             buffer_descricao += " " + linha
 
         i += 1
 
     return dados_produtos
+
 
 
 
