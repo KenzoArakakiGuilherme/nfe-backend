@@ -20,15 +20,21 @@ def extrair_data_emissao(texto):
 def extrair_dados(texto, nome_arquivo, data_emissao):
     linhas = texto.split('\n')
     dados_produtos = []
+
+    # Começa a ler só após encontrar a âncora "DADOS DO PRODUTO/SERVIÇO"
+    try:
+        idx_inicio = next(i for i, linha in enumerate(linhas) if "DADOS DO PRODUTO" in linha.upper())
+        linhas = linhas[idx_inicio + 1:]  # ignora tudo antes da âncora
+    except StopIteration:
+        return []  # âncora não encontrada, evita erro
+
     buffer_descricao = ""
     i = 0
-
     while i < len(linhas):
         linha = linhas[i].strip()
-
-        # Verifica se a linha contém exatamente 15 colunas técnicas
         partes = linha.split()
-        if len(partes) >= 15 and re.match(r"^\d{6,}", partes[0]) == None:
+
+        if len(partes) == 15:  # linha técnica identificada
             try:
                 aliq_ipi    = partes[-1]
                 aliq_icms   = partes[-2]
@@ -66,16 +72,17 @@ def extrair_dados(texto, nome_arquivo, data_emissao):
                     "aliq_ipi": aliq_ipi
                 })
 
-                buffer_descricao = ""  # limpa para o próximo produto
+                buffer_descricao = ""  # limpa buffer para próximo produto
             except Exception:
-                buffer_descricao = ""  # limpa mesmo se der erro para evitar sujeira
+                buffer_descricao = ""  # falhou? limpa mesmo assim
+
         else:
-            # Acumula linhas que fazem parte da descrição
-            buffer_descricao += " " + linha.strip()
+            buffer_descricao += " " + linha
 
         i += 1
 
     return dados_produtos
+
 
 
 @app.route("/upload", methods=["POST"])
