@@ -10,45 +10,70 @@ app = Flask(__name__)
 CORS(app)
 
 def extrair_data_emissao(texto):
-    match = re.search(r'DATA DA EMISSÃO\s+(\d{2}/\d{2}/\d{4})', texto)
+    match = re.search(r'DATA DA EMISSÃO\s*(\d{2}/\d{2}/\d{4})', texto)
     if match:
         return match.group(1)
     return ""
 
-def extrair_dados(texto, nome_arquivo):
+def extrair_dados(texto, nome_arquivo, data_emissao):
     linhas = texto.split('\n')
     dados_produtos = []
-    data_emissao = extrair_data_emissao(texto)
+    i = 0
 
-    for linha in linhas:
+    while i < len(linhas):
+        linha = linhas[i].strip()
+
         if re.match(r"^\d{6,}", linha) and "," in linha:
-            partes = linha.strip().split()
+            linha_ativa = linha
+
+            if i + 1 < len(linhas):
+                prox_linha = linhas[i + 1].strip()
+                if not re.search(r"\d{2,}(\.\d{3})*,\d{2}", prox_linha) and not re.search(r"\d{4}", prox_linha):
+                    linha_ativa = linha + " " + prox_linha
+                    i += 1
+
+            partes = linha_ativa.split()
             try:
-                campos_finais = partes[-13:]  # Últimos 13 campos fixos
-                codigo = partes[0]
-                descricao = " ".join(partes[1:-13])
+                aliq_ipi    = partes[-1]
+                aliq_icms   = partes[-2]
+                vlr_ipi     = partes[-3]
+                vlr_icms    = partes[-4]
+                bc_icms     = partes[-5]
+                vlr_total   = partes[-6]
+                vlr_desc    = partes[-7]
+                vlr_unit    = partes[-8]
+                qtd         = partes[-9]
+                unid        = partes[-10]
+                cfop        = partes[-11]
+                cst         = partes[-12]
+                ncm         = partes[-13]
+                codigo      = partes[0]
+                descricao   = " ".join(partes[1:-13])
 
                 dados_produtos.append({
                     "arquivo": nome_arquivo,
                     "data_emissao": data_emissao,
                     "codigo": codigo,
                     "descricao": descricao,
-                    "ncm": campos_finais[0],
-                    "cst": campos_finais[1],
-                    "cfop": campos_finais[2],
-                    "unid": campos_finais[3],
-                    "qtd": campos_finais[4],
-                    "vlr_unit": campos_finais[5],
-                    "vlr_desc": campos_finais[6],
-                    "vlr_total": campos_finais[7],
-                    "bc_icms": campos_finais[8],
-                    "vlr_icms": campos_finais[9],
-                    "vlr_ipi": campos_finais[10],
-                    "aliq_icms": campos_finais[11],
-                    "aliq_ipi": campos_finais[12],
+                    "ncm": ncm,
+                    "cst": cst,
+                    "cfop": cfop,
+                    "unid": unid,
+                    "qtd": qtd,
+                    "vlr_unit": vlr_unit,
+                    "vlr_desc": vlr_desc,
+                    "vlr_total": vlr_total,
+                    "bc_icms": bc_icms,
+                    "vlr_icms": vlr_icms,
+                    "vlr_ipi": vlr_ipi,
+                    "aliq_icms": aliq_icms,
+                    "aliq_ipi": aliq_ipi
                 })
-            except Exception:
-                continue
+            except:
+                pass
+
+        i += 1
+
     return dados_produtos
 
 @app.route("/upload", methods=["POST"])
@@ -57,10 +82,11 @@ def upload():
     all_dados = []
 
     for arquivo in arquivos:
-        nome_arquivo = arquivo.filename
         with pdfplumber.open(arquivo) as pdf:
             texto = "".join([page.extract_text() for page in pdf.pages])
-        dados = extrair_dados(texto, nome_arquivo)
+        data_emissao = extrair_data_emissao(texto)
+        nome_arquivo = arquivo.filename
+        dados = extrair_dados(texto, nome_arquivo, data_emissao)
         all_dados.extend(dados)
 
     df = pd.DataFrame(all_dados)
