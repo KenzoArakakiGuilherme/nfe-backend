@@ -66,7 +66,13 @@ def upload():
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
     df.to_excel(temp_file.name, index=False)
 
-    return send_file(temp_file.name, as_attachment=True, download_name="resultado.xlsx")
+    return send_file(
+    temp_file.name,
+    as_attachment=True,
+    download_name="resultado.xlsx",
+    mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+)
+
 
 @app.route("/")
 def home():
