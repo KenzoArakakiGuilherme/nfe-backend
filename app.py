@@ -9,67 +9,46 @@ import os
 app = Flask(__name__)
 CORS(app)
 
-# Função para extrair dados dos PDFs
+def extrair_data_emissao(texto):
+    match = re.search(r'DATA DA EMISSÃO\s+(\d{2}/\d{2}/\d{4})', texto)
+    if match:
+        return match.group(1)
+    return ""
+
 def extrair_dados(texto, nome_arquivo):
     linhas = texto.split('\n')
     dados_produtos = []
-    buffer_descricao = ""
-    data_emissao = ""
-
-    # Buscar a data de emissão
-    for i, linha in enumerate(linhas):
-        if "DATA DA EMISSÃO" in linha.upper():
-            data_emissao = linhas[i + 1].strip()
-            break
+    data_emissao = extrair_data_emissao(texto)
 
     for linha in linhas:
         if re.match(r"^\d{6,}", linha) and "," in linha:
             partes = linha.strip().split()
             try:
-                aliq_ipi    = partes[-1]
-                aliq_icms   = partes[-2]
-                vlr_ipi     = partes[-3]
-                vlr_icms    = partes[-4]
-                bc_icms     = partes[-5]
-                vlr_total   = partes[-6]
-                vlr_desc    = partes[-7]
-                vlr_unit    = partes[-8]
-                qtd         = partes[-9]
-                unid        = partes[-10]
-                cfop        = partes[-11]
-                cst         = partes[-12]
-                ncm         = partes[-13]
-                codigo      = partes[0]
-
-                # Combina buffer + linha atual
-                descricao_parte = " ".join(partes[1:-13])
-                descricao_completa = (buffer_descricao + " " + descricao_parte).strip()
-                buffer_descricao = ""  # limpa o buffer após o uso
+                campos_finais = partes[-13:]  # Últimos 13 campos fixos
+                codigo = partes[0]
+                descricao = " ".join(partes[1:-13])
 
                 dados_produtos.append({
                     "arquivo": nome_arquivo,
                     "data_emissao": data_emissao,
                     "codigo": codigo,
-                    "descricao": descricao_completa,
-                    "ncm": ncm,
-                    "cst": cst,
-                    "cfop": cfop,
-                    "unid": unid,
-                    "qtd": qtd,
-                    "vlr_unit": vlr_unit,
-                    "vlr_desc": vlr_desc,
-                    "vlr_total": vlr_total,
-                    "bc_icms": bc_icms,
-                    "vlr_icms": vlr_icms,
-                    "vlr_ipi": vlr_ipi,
-                    "aliq_icms": aliq_icms,
-                    "aliq_ipi": aliq_ipi
+                    "descricao": descricao,
+                    "ncm": campos_finais[0],
+                    "cst": campos_finais[1],
+                    "cfop": campos_finais[2],
+                    "unid": campos_finais[3],
+                    "qtd": campos_finais[4],
+                    "vlr_unit": campos_finais[5],
+                    "vlr_desc": campos_finais[6],
+                    "vlr_total": campos_finais[7],
+                    "bc_icms": campos_finais[8],
+                    "vlr_icms": campos_finais[9],
+                    "vlr_ipi": campos_finais[10],
+                    "aliq_icms": campos_finais[11],
+                    "aliq_ipi": campos_finais[12],
                 })
-            except:
+            except Exception:
                 continue
-        else:
-            buffer_descricao += " " + linha.strip()
-
     return dados_produtos
 
 @app.route("/upload", methods=["POST"])
