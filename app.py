@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify, send_file
+from flask_cors import CORS
 import pdfplumber
 import pandas as pd
 import re
@@ -6,8 +7,9 @@ import tempfile
 import os
 
 app = Flask(__name__)
-dados_temp = []  # Armazena os dados temporariamente para baixar depois
+CORS(app)  # ✅ Permite acesso do frontend (evita erro de CORS)
 
+# Função para extrair dados dos PDFs
 def extrair_dados(texto):
     linhas = texto.split('\n')
     dados_produtos = []
@@ -53,40 +55,40 @@ def extrair_dados(texto):
                 continue
     return dados_produtos
 
+# ✅ Rota para upload e extração dos dados (retorna JSON)
 @app.route("/upload", methods=["POST"])
 def upload():
-    global dados_temp
     arquivos = request.files.getlist("arquivos")
-    dados_temp = []
+    all_dados = []
 
     for arquivo in arquivos:
         with pdfplumber.open(arquivo) as pdf:
             texto = "".join([page.extract_text() for page in pdf.pages])
         dados = extrair_dados(texto)
-        dados_temp.extend(dados)
+        all_dados.extend(dados)
 
-    return jsonify(dados_temp)
-
-@app.route("/baixar", methods=["GET"])
-def baixar():
-    if not dados_temp:
-        return "Nenhum dado processado ainda.", 400
-
-    df = pd.DataFrame(dados_temp)
+    # Salva Excel temporariamente para uso posterior
+    df = pd.DataFrame(all_dados)
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
     df.to_excel(temp_file.name, index=False)
+    app.config["ULTIMO_ARQUIVO"] = temp_file.name
 
-    return send_file(
-        temp_file.name,
-        as_attachment=True,
-        download_name="resultado.xlsx",
-        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    )
+    return jsonify(all_dados)
 
+# ✅ Rota para download manual do Excel
+@app.route("/baixar")
+def baixar_excel():
+    arquivo = app.config.get("ULTIMO_ARQUIVO")
+    if arquivo and os.path.exists(arquivo):
+        return send_file(arquivo, as_attachment=True, download_name="resultado.xlsx")
+    return "Nenhum arquivo gerado ainda.", 404
+
+# Página inicial simples
 @app.route("/")
 def home():
-    return "API NFe pronta!"
+    return "✅ API NFe está no ar!"
 
+# ⚙️ Configuração do host/porta para o Render
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
