@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: nfe-api
+    runtime: python
+    buildCommand: ""
+    startCommand: "python app.py"
+    env: python
+    plan: free
+    region: oregon
