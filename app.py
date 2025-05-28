@@ -20,31 +20,15 @@ def extrair_data_emissao(texto):
 def extrair_dados(texto, nome_arquivo, data_emissao):
     linhas = texto.split('\n')
     dados_produtos = []
+    buffer_descricao = ""
     i = 0
 
     while i < len(linhas):
         linha = linhas[i].strip()
 
-        if re.match(r"^\d{6,}", linha):
-            descricao_linha = linha
-            campos_linha = ""
-
-            # Verifica se a próxima linha contém os dados técnicos (valores etc.)
-            if i + 1 < len(linhas):
-                proxima_linha = linhas[i + 1].strip()
-
-                # Se a próxima linha contém muitos números e vírgulas, é a linha técnica
-                if re.search(r"\d{1,3},\d{2}", proxima_linha) and len(proxima_linha.split()) >= 13:
-                    campos_linha = proxima_linha
-                    i += 1  # avança 1 linha
-                else:
-                    descricao_linha += " " + proxima_linha
-                    if i + 2 < len(linhas):
-                        campos_linha = linhas[i + 2].strip()
-                        i += 2  # avança 2 linhas
-
-            partes = (descricao_linha + " " + campos_linha).strip().split()
-
+        # Verifica se a linha contém exatamente 15 colunas técnicas
+        partes = linha.split()
+        if len(partes) >= 15 and re.match(r"^\d{6,}", partes[0]) == None:
             try:
                 aliq_ipi    = partes[-1]
                 aliq_icms   = partes[-2]
@@ -59,8 +43,8 @@ def extrair_dados(texto, nome_arquivo, data_emissao):
                 cfop        = partes[-11]
                 cst         = partes[-12]
                 ncm         = partes[-13]
-                codigo      = partes[0]
-                descricao   = " ".join(partes[1:-13])
+                codigo      = partes[-14]
+                descricao   = buffer_descricao.strip()
 
                 dados_produtos.append({
                     "arquivo": nome_arquivo,
@@ -81,12 +65,18 @@ def extrair_dados(texto, nome_arquivo, data_emissao):
                     "aliq_icms": aliq_icms,
                     "aliq_ipi": aliq_ipi
                 })
+
+                buffer_descricao = ""  # limpa para o próximo produto
             except Exception:
-                pass
+                buffer_descricao = ""  # limpa mesmo se der erro para evitar sujeira
+        else:
+            # Acumula linhas que fazem parte da descrição
+            buffer_descricao += " " + linha.strip()
 
         i += 1
 
     return dados_produtos
+
 
 @app.route("/upload", methods=["POST"])
 def upload():
