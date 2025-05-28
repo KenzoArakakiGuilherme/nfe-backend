@@ -3,8 +3,10 @@ import pdfplumber
 import pandas as pd
 import re
 import tempfile
+import os
 
 app = Flask(__name__)
+dados_temp = []  # Armazena os dados temporariamente para baixar depois
 
 def extrair_dados(texto):
     linhas = texto.split('\n')
@@ -53,34 +55,38 @@ def extrair_dados(texto):
 
 @app.route("/upload", methods=["POST"])
 def upload():
+    global dados_temp
     arquivos = request.files.getlist("arquivos")
-    all_dados = []
+    dados_temp = []
 
     for arquivo in arquivos:
         with pdfplumber.open(arquivo) as pdf:
             texto = "".join([page.extract_text() for page in pdf.pages])
         dados = extrair_dados(texto)
-        all_dados.extend(dados)
+        dados_temp.extend(dados)
 
-    df = pd.DataFrame(all_dados)
+    return jsonify(dados_temp)
+
+@app.route("/baixar", methods=["GET"])
+def baixar():
+    if not dados_temp:
+        return "Nenhum dado processado ainda.", 400
+
+    df = pd.DataFrame(dados_temp)
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
     df.to_excel(temp_file.name, index=False)
 
     return send_file(
-    temp_file.name,
-    as_attachment=True,
-    download_name="resultado.xlsx",
-    mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-)
-
+        temp_file.name,
+        as_attachment=True,
+        download_name="resultado.xlsx",
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
 
 @app.route("/")
 def home():
     return "API NFe pronta!"
 
-import os
-
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
-
