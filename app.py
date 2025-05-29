@@ -1,75 +1,96 @@
-<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-  <meta charset="UTF-8" />
-  <title>Leitor de Notas Fiscais</title>
-</head>
-<body>
-  <h2>Upload de Notas Fiscais em PDF</h2>
-  <form id="uploadForm">
-    <input type="file" name="arquivos" multiple accept=".pdf" required />
-    <button type="submit">Enviar e Visualizar Dados</button>
-  </form>
+from flask import Flask, request, jsonify, send_file
+from flask_cors import CORS
+import pdfplumber
+import pandas as pd
+import re
+import tempfile
+import os
 
-  <p id="status"></p>
-  <button id="baixarExcel" style="display:none;">Baixar Excel</button>
+app = Flask(__name__)
+CORS(app)
 
-  <div id="tabelaResultado"></div>
+def extrair_data_emissao(texto):
+    match = re.search(r"\b\d{2}/\d{2}/\d{4}\b", texto)
+    return match.group(0) if match else "N/A"
 
-  <script>
-    const form = document.getElementById("uploadForm");
-    const status = document.getElementById("status");
-    const tabela = document.getElementById("tabelaResultado");
-    const botaoBaixar = document.getElementById("baixarExcel");
+def extrair_dados(texto, nome_arquivo):
+    linhas = texto.split('\n')
+    dados_produtos = []
+    data_emissao = extrair_data_emissao(texto)
 
-    form.onsubmit = async (e) => {
-      e.preventDefault();
-      status.innerText = "⏳ Processando PDFs...";
-      tabela.innerHTML = "";
-      botaoBaixar.style.display = "none";
+    for linha in linhas:
+        if re.match(r"^\d{6,}", linha) and "," in linha:
+            partes = linha.strip().split()
+            try:
+                aliq_ipi    = partes[-1]
+                aliq_icms   = partes[-2]
+                vlr_ipi     = partes[-3]
+                vlr_icms    = partes[-4]
+                bc_icms     = partes[-5]
+                vlr_total   = partes[-6]
+                vlr_desc    = partes[-7]
+                vlr_unit    = partes[-8]
+                qtd         = partes[-9]
+                unid        = partes[-10]
+                cfop        = partes[-11]
+                cst         = partes[-12]
+                ncm         = partes[-13]
+                codigo      = partes[0]
+                descricao   = " ".join(partes[1:-13])
 
-      const formData = new FormData(form);
+                dados_produtos.append({
+                    "arquivo": nome_arquivo,
+                    "data_emissao": data_emissao,
+                    "codigo": codigo,
+                    "descricao": descricao,
+                    "ncm": ncm,
+                    "cst": cst,
+                    "cfop": cfop,
+                    "unid": unid,
+                    "qtd": qtd,
+                    "vlr_unit": vlr_unit,
+                    "vlr_desc": vlr_desc,
+                    "vlr_total": vlr_total,
+                    "bc_icms": bc_icms,
+                    "vlr_icms": vlr_icms,
+                    "vlr_ipi": vlr_ipi,
+                    "aliq_icms": aliq_icms,
+                    "aliq_ipi": aliq_ipi
+                })
+            except:
+                continue
+    return dados_produtos
 
-      try {
-        const response = await fetch("https://nfe-backend.onrender.com/upload", {
-          method: "POST",
-          body: formData
-        });
+@app.route("/upload", methods=["POST"])
+def upload():
+    arquivos = request.files.getlist("arquivos")
+    all_dados = []
 
-        const dados = await response.json();
+    for arquivo in arquivos:
+        nome = arquivo.filename
+        with pdfplumber.open(arquivo) as pdf:
+            texto = "".join([page.extract_text() for page in pdf.pages])
+        dados = extrair_dados(texto, nome)
+        all_dados.extend(dados)
 
-        if (!dados.length) {
-          status.innerText = "⚠️ Nenhum produto encontrado.";
-          return;
-        }
+    df = pd.DataFrame(all_dados)
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
+    df.to_excel(temp_file.name, index=False)
+    app.config["ULTIMO_ARQUIVO"] = temp_file.name
 
-        // Construir tabela
-        let html = "<table border='1'><tr>";
-        for (const key of Object.keys(dados[0])) {
-          html += `<th>${key}</th>`;
-        }
-        html += "</tr>";
-        for (const item of dados) {
-          html += "<tr>";
-          for (const valor of Object.values(item)) {
-            html += `<td>${valor}</td>`;
-          }
-          html += "</tr>";
-        }
-        html += "</table>";
+    return jsonify(all_dados)
 
-        tabela.innerHTML = html;
-        botaoBaixar.style.display = "inline";
-        status.innerText = "✅ Dados extraídos com sucesso!";
-      } catch (error) {
-        console.error(error);
-        status.innerText = "❌ Erro ao conectar ao servidor.";
-      }
-    };
+@app.route("/baixar")
+def baixar_excel():
+    arquivo = app.config.get("ULTIMO_ARQUIVO")
+    if arquivo and os.path.exists(arquivo):
+        return send_file(arquivo, as_attachment=True, download_name="resultado.xlsx")
+    return "Nenhum arquivo gerado ainda.", 404
 
-    botaoBaixar.onclick = () => {
-      window.open("https://nfe-backend.onrender.com/baixar", "_blank");
-    };
-  </script>
-</body>
-</html>
+@app.route("/")
+def home():
+    return "✅ API NFe está no ar!"
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
