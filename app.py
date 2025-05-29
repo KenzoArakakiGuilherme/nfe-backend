@@ -34,15 +34,15 @@ def extrair_dados(texto, nome_arquivo, data_emissao):
         return []
 
     i = 0
-    while i < len(linhas) - 2:
+    while i < len(linhas) - 3:
         linha1 = linhas[i].strip()
         linha2 = linhas[i+1].strip()
         linha3 = linhas[i+2].strip()
-        linha4 = linhas[i+3].strip() if i + 3 < len(linhas) else ""
+        linha4 = linhas[i+3].strip()  # Código do produto
 
         partes_tecnicas = linha3.split()
 
-        if len(partes_tecnicas) == 15 and all("," in p or p.replace('.', '').isdigit() for p in partes_tecnicas):
+        if len(partes_tecnicas) == 15 and sum(1 for p in partes_tecnicas if "," in p or p.replace('.', '').isdigit()) >= 10:
             descricao = f"{linha1} {linha2}".strip()
             try:
                 ncm         = partes_tecnicas[0]
@@ -108,6 +108,9 @@ def upload():
         "vlr_unit", "vlr_desc", "vlr_total", "bc_icms", "vlr_icms",
         "vlr_ipi", "aliq_icms", "aliq_ipi", "arquivo", "data_emissao"
     ]
+
+    if not all_dados:
+        return jsonify([])
 
     df = pd.DataFrame(all_dados)[colunas_ordenadas]
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
