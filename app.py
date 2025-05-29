@@ -19,27 +19,30 @@ def upload():
     for arquivo in arquivos:
         nome_arquivo = arquivo.filename
         try:
-            # Salvar temporariamente o PDF para leitura pelo Camelot
             temp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
             arquivo.save(temp_pdf.name)
 
-            # Extrair tabelas com Camelot
-            tabelas = camelot.read_pdf(temp_pdf.name, pages='all', strip_text='\n')
+            # Tenta extrair com flavor=stream (mais robusto para DANFE)
+            tabelas = camelot.read_pdf(temp_pdf.name, pages='all', flavor='stream', strip_text='\n')
+
+            if tabelas.n == 0:
+                print(f"Nenhuma tabela encontrada em {nome_arquivo}")
+                continue
+
+            print(f"{tabelas.n} tabela(s) encontrada(s) em {nome_arquivo}")
 
             for tabela in tabelas:
                 df = tabela.df
 
-                # Procurar linha com cabeçalho 'DESCRIÇÃO'
-                cabecalho_idx = df[df.apply(lambda x: 'DESCRIÇÃO' in ''.join(x), axis=1)].index
-                if not cabecalho_idx.empty:
-                    header_row = cabecalho_idx[0]
+                # Procurar a linha que contém "DESCRIÇÃO DO PRODUTO"
+                header_index = df[df.apply(lambda x: x.astype(str).str.contains("DESCRIÇÃO", case=False).any(), axis=1)].index
+                if not header_index.empty:
+                    header_row = header_index[0]
                     df.columns = df.iloc[header_row]
                     df = df.iloc[header_row + 1:]
-
-                    # Adicionar nome do arquivo como referência
-                    df['arquivo'] = nome_arquivo
+                    df = df.loc[:, ~df.columns.duplicated()]
+                    df["arquivo"] = nome_arquivo
                     all_dados.append(df)
-
         except Exception as e:
             print(f"Erro ao processar {nome_arquivo}: {str(e)}")
             continue
@@ -48,8 +51,6 @@ def upload():
         return jsonify([])
 
     df_final = pd.concat(all_dados, ignore_index=True)
-
-    # Salvar Excel
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
     df_final.to_excel(temp_file.name, index=False)
     app.config["ULTIMO_ARQUIVO"] = temp_file.name
