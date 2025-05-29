@@ -7,14 +7,9 @@ import tempfile
 import os
 
 app = Flask(__name__)
-# Configuração mais segura do CORS
-CORS(app, resources={
-    r"/upload": {"origins": ["*"], "methods": ["POST"], "allow_headers": ["Content-Type"]},
-    r"/baixar": {"origins": ["*"]}
-})
+CORS(app)
 
 def clean_number(value):
-    """Converte números no formato brasileiro para float"""
     if isinstance(value, str):
         value = value.replace('.', '').replace(',', '.')
     try:
@@ -22,150 +17,123 @@ def clean_number(value):
     except:
         return 0.0
 
-def extrair_dados(texto, nome_arquivo):
-    dados = []
-    
-    try:
-        # Extrair metadados
-        metadados = {
-            'emissor': re.search(r"IDENTIFICAÇÃO DO EMITENTE\s+(.+?)\n", texto),
-            'destinatario': re.search(r"NOM[^\n]+\s+(.+?)\n", texto),
-            'data_emissao': re.search(r"DATA DA EMISSÃO\s+(\d{2}/\d{2}/\d{4})", texto),
-            'valor_total': re.search(r"VALOR TOTAL DA NOTA\s+([\d.,]+)", texto),
-            'chave_acesso': re.search(r"CHAVE DE ACESSO\n(.+?)\n", texto, re.DOTALL)
-        }
-        
-        metadados = {k: v.group(1).strip() if v else "" for k, v in metadados.items()}
+def extrair_produtos_de_linhas(linhas, nome_arquivo, data_emissao):
+    produtos = []
+    buffer_linha = []
+    num_campos_tecnicos = 15
 
-        # Extrair produtos
-        produto_section = re.search(
-            r"DADOS DO PRODUTOS?/SERVIÇO.*?\n(.+?)(?:\n\n|VALOR|$)", 
-            texto, 
-            re.DOTALL | re.IGNORECASE
-        )
-        
-        if produto_section:
-            produto_lines = [line.strip() for line in produto_section.group(1).split('\n') if line.strip()]
-            
-            current_product = None
-            
-            for line in produto_lines:
-                if re.match(r"^\d{6,}", line):
-                    if current_product:
-                        dados.append(current_product)
-                    
-                    parts = re.split(r'\s{2,}', line)
-                    if len(parts) < 2:
-                        continue
-                        
-                    current_product = {
-                        'codigo': parts[0],
-                        'descricao': parts[1],
-                        'ncm': '',
-                        'cst': '',
-                        'cfop': '',
-                        'unid': '',
-                        'qtd': '',
-                        'vlr_unit': '',
-                        'vlr_desc': '',
-                        'vlr_total': '',
-                        'bc_icms': '',
-                        'vlr_icms': '',
-                        'vlr_ipi': '',
-                        'aliq_icms': '',
-                        'aliq_ipi': ''
-                    }
-                    
-                    numeric_fields = re.findall(r"(-?\d[\d.,]*)", line)
-                    if len(numeric_fields) >= 13:
-                        fields = numeric_fields[-13:]
-                        current_product.update({
-                            'ncm': fields[0],
-                            'cst': fields[1],
-                            'cfop': fields[2],
-                            'unid': fields[3],
-                            'qtd': clean_number(fields[4]),
-                            'vlr_unit': clean_number(fields[5]),
-                            'vlr_desc': clean_number(fields[6]),
-                            'vlr_total': clean_number(fields[7]),
-                            'bc_icms': clean_number(fields[8]),
-                            'vlr_icms': clean_number(fields[9]),
-                            'vlr_ipi': clean_number(fields[10]),
-                            'aliq_icms': clean_number(fields[11]),
-                            'aliq_ipi': clean_number(fields[12])
-                        })
-                elif current_product:
-                    current_product['descricao'] += " " + line
-            
-            if current_product:
-                dados.append(current_product)
-        
-        # Adicionar metadados
-        for produto in dados:
-            produto.update({
-                'arquivo': nome_arquivo,
-                'data_emissao': metadados['data_emissao'],
-                'emissor': metadados['emissor'],
-                'destinatario': metadados['destinatario'],
-                'valor_total_nota': clean_number(metadados['valor_total']),
-                'chave_acesso': metadados['chave_acesso']
-            })
-            
-    except Exception as e:
-        print(f"Erro ao extrair dados do arquivo {nome_arquivo}: {str(e)}")
-    
-    return dados
+    for linha in linhas:
+        if not linha.strip():
+            continue
+
+        partes = linha.strip().split()
+        numeros = [p for p in partes if re.fullmatch(r"[\d\.,\-]+", p)]
+
+        if len(numeros) >= num_campos_tecnicos:
+            if buffer_linha:
+                codigo = buffer_linha[0]
+                descricao = " ".join(buffer_linha[1:-num_campos_tecnicos])
+                tecnicos = buffer_linha[-num_campos_tecnicos:]
+                produtos.append({
+                    "codigo": codigo,
+                    "descricao": descricao.strip(),
+                    "ncm": tecnicos[0],
+                    "cst": tecnicos[1],
+                    "cfop": tecnicos[2],
+                    "unid": tecnicos[3],
+                    "qtd": clean_number(tecnicos[4]),
+                    "vlr_unit": clean_number(tecnicos[5]),
+                    "vlr_desc": clean_number(tecnicos[6]),
+                    "vlr_total": clean_number(tecnicos[7]),
+                    "bc_icms": clean_number(tecnicos[8]),
+                    "vlr_icms": clean_number(tecnicos[9]),
+                    "vlr_ipi": clean_number(tecnicos[10]),
+                    "aliq_icms": clean_number(tecnicos[11]),
+                    "aliq_ipi": clean_number(tecnicos[12]),
+                    "arquivo": nome_arquivo,
+                    "data_emissao": data_emissao
+                })
+            buffer_linha = partes
+        else:
+            buffer_linha += partes
+
+    if buffer_linha:
+        codigo = buffer_linha[0]
+        descricao = " ".join(buffer_linha[1:-num_campos_tecnicos])
+        tecnicos = buffer_linha[-num_campos_tecnicos:]
+        produtos.append({
+            "codigo": codigo,
+            "descricao": descricao.strip(),
+            "ncm": tecnicos[0],
+            "cst": tecnicos[1],
+            "cfop": tecnicos[2],
+            "unid": tecnicos[3],
+            "qtd": clean_number(tecnicos[4]),
+            "vlr_unit": clean_number(tecnicos[5]),
+            "vlr_desc": clean_number(tecnicos[6]),
+            "vlr_total": clean_number(tecnicos[7]),
+            "bc_icms": clean_number(tecnicos[8]),
+            "vlr_icms": clean_number(tecnicos[9]),
+            "vlr_ipi": clean_number(tecnicos[10]),
+            "aliq_icms": clean_number(tecnicos[11]),
+            "aliq_ipi": clean_number(tecnicos[12]),
+            "arquivo": nome_arquivo,
+            "data_emissao": data_emissao
+        })
+
+    return produtos
+
+def extrair_dados(texto, nome_arquivo):
+    data_emissao_match = re.search(r"DATA DA EMISSÃO\s+(\d{2}/\d{2}/\d{4})", texto)
+    data_emissao = data_emissao_match.group(1) if data_emissao_match else ""
+
+    # Encontrar seção de produtos
+    inicio = texto.find("DADOS DO PRODUTO/SERVIÇO")
+    if inicio == -1:
+        return []
+
+    linhas = texto[inicio:].split('\n')
+    return extrair_produtos_de_linhas(linhas, nome_arquivo, data_emissao)
 
 @app.route("/upload", methods=["POST"])
 def upload():
-    # Verifica se o cabeçalho Content-Type é multipart/form-data
-    if 'Content-Type' not in request.headers or 'multipart/form-data' not in request.headers['Content-Type']:
-        return jsonify({"erro": "Content-Type deve ser multipart/form-data"}), 400
-        
     if 'arquivos' not in request.files:
-        return jsonify({"erro": "Nenhum arquivo enviado"}), 400
-        
+        return jsonify([])
+
     arquivos = request.files.getlist("arquivos")
-    if not arquivos or not arquivos[0].filename:
-        return jsonify({"erro": "Nenhum arquivo válido enviado"}), 400
-    
     all_dados = []
 
     for arquivo in arquivos:
         try:
-            # Verifica se é um PDF
-            if not arquivo.filename.lower().endswith('.pdf'):
-                continue
-                
-            with pdfplumber.open(arquivo.stream) as pdf:
+            with pdfplumber.open(arquivo) as pdf:
                 texto = "\n".join([page.extract_text() or "" for page in pdf.pages])
-                dados = extrair_dados(texto, arquivo.filename)
-                all_dados.extend(dados)
+            dados = extrair_dados(texto, arquivo.filename)
+            all_dados.extend(dados)
         except Exception as e:
             print(f"Erro ao processar {arquivo.filename}: {str(e)}")
             continue
 
     if not all_dados:
-        return jsonify({"erro": "Nenhum dado extraído dos arquivos"}), 400
+        return jsonify([])
 
     colunas_ordenadas = [
-        'codigo', 'descricao', 'ncm', 'cst', 'cfop', 'unid', 'qtd', 
-        'vlr_unit', 'vlr_desc', 'vlr_total', 'bc_icms', 'vlr_icms', 
-        'vlr_ipi', 'aliq_icms', 'aliq_ipi', 'data_emissao', 'emissor',
-        'destinatario', 'valor_total_nota', 'chave_acesso', 'arquivo'
+        'codigo', 'descricao', 'ncm', 'cst', 'cfop', 'unid', 'qtd',
+        'vlr_unit', 'vlr_desc', 'vlr_total', 'bc_icms', 'vlr_icms',
+        'vlr_ipi', 'aliq_icms', 'aliq_ipi', 'arquivo', 'data_emissao'
     ]
 
     df = pd.DataFrame(all_dados)
     for col in colunas_ordenadas:
         if col not in df.columns:
             df[col] = ""
+
     df = df[colunas_ordenadas]
-    
+
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
     df.to_excel(temp_file.name, index=False)
     app.config["ULTIMO_ARQUIVO"] = temp_file.name
 
-    return jsonify(all_dados)
+    return jsonify(df.to_dict(orient="records"))
 
 @app.route("/baixar")
 def baixar_excel():
@@ -177,7 +145,7 @@ def baixar_excel():
             download_name="dados_nfe.xlsx",
             mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-    return jsonify({"erro": "Nenhum arquivo gerado ainda"}), 404
+    return "Nenhum arquivo gerado ainda.", 404
 
 @app.route("/")
 def home():
@@ -185,4 +153,4 @@ def home():
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(host="0.0.0.0", port=port)
