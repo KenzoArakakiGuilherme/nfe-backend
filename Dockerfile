@@ -3,21 +3,24 @@ FROM python:3.11-slim
 # Instala dependências do sistema
 RUN apt-get update && apt-get install -y \
     ghostscript \
-    python3-tk \
-    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libsm6 \
+    libxrender1 \
+    libxext6 \
+    poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
-# Define diretório de trabalho
+# Cria diretório da aplicação
 WORKDIR /app
 
-# Copia os arquivos do projeto
+# Copia arquivos para dentro do container
 COPY . .
 
 # Instala dependências do Python
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Expõe a porta usada pelo Flask
-EXPOSE 10000
+# Porta que o Flask vai rodar
+ENV PORT=10000
 
-# Comando para rodar o app
+# Comando para iniciar o app
 CMD ["python", "app.py"]
