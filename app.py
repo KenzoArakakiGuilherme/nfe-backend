@@ -1,139 +1,60 @@
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
-import pdfplumber
+import camelot
 import pandas as pd
-import re
 import tempfile
 import os
 
 app = Flask(__name__)
 CORS(app)
 
-def clean_number(value):
-    if isinstance(value, str):
-        value = value.replace('.', '').replace(',', '.')
-    try:
-        return float(value)
-    except:
-        return 0.0
-
-def extrair_produtos_de_linhas(linhas, nome_arquivo, data_emissao):
-    produtos = []
-    buffer_linha = []
-    num_campos_tecnicos = 15
-
-    for linha in linhas:
-        if not linha.strip():
-            continue
-
-        partes = linha.strip().split()
-        numeros = [p for p in partes if re.fullmatch(r"[\d\.,\-]+", p)]
-
-        if len(numeros) >= num_campos_tecnicos:
-            if buffer_linha:
-                codigo = buffer_linha[0]
-                descricao = " ".join(buffer_linha[1:-num_campos_tecnicos])
-                tecnicos = buffer_linha[-num_campos_tecnicos:]
-                produtos.append({
-                    "codigo": codigo,
-                    "descricao": descricao.strip(),
-                    "ncm": tecnicos[0],
-                    "cst": tecnicos[1],
-                    "cfop": tecnicos[2],
-                    "unid": tecnicos[3],
-                    "qtd": clean_number(tecnicos[4]),
-                    "vlr_unit": clean_number(tecnicos[5]),
-                    "vlr_desc": clean_number(tecnicos[6]),
-                    "vlr_total": clean_number(tecnicos[7]),
-                    "bc_icms": clean_number(tecnicos[8]),
-                    "vlr_icms": clean_number(tecnicos[9]),
-                    "vlr_ipi": clean_number(tecnicos[10]),
-                    "aliq_icms": clean_number(tecnicos[11]),
-                    "aliq_ipi": clean_number(tecnicos[12]),
-                    "arquivo": nome_arquivo,
-                    "data_emissao": data_emissao
-                })
-            buffer_linha = partes
-        else:
-            buffer_linha += partes
-
-    if buffer_linha:
-        codigo = buffer_linha[0]
-        descricao = " ".join(buffer_linha[1:-num_campos_tecnicos])
-        tecnicos = buffer_linha[-num_campos_tecnicos:]
-        produtos.append({
-            "codigo": codigo,
-            "descricao": descricao.strip(),
-            "ncm": tecnicos[0],
-            "cst": tecnicos[1],
-            "cfop": tecnicos[2],
-            "unid": tecnicos[3],
-            "qtd": clean_number(tecnicos[4]),
-            "vlr_unit": clean_number(tecnicos[5]),
-            "vlr_desc": clean_number(tecnicos[6]),
-            "vlr_total": clean_number(tecnicos[7]),
-            "bc_icms": clean_number(tecnicos[8]),
-            "vlr_icms": clean_number(tecnicos[9]),
-            "vlr_ipi": clean_number(tecnicos[10]),
-            "aliq_icms": clean_number(tecnicos[11]),
-            "aliq_ipi": clean_number(tecnicos[12]),
-            "arquivo": nome_arquivo,
-            "data_emissao": data_emissao
-        })
-
-    return produtos
-
-def extrair_dados(texto, nome_arquivo):
-    data_emissao_match = re.search(r"DATA DA EMISSÃO\s+(\d{2}/\d{2}/\d{4})", texto)
-    data_emissao = data_emissao_match.group(1) if data_emissao_match else ""
-
-    # Encontrar seção de produtos
-    inicio = texto.find("DADOS DO PRODUTO/SERVIÇO")
-    if inicio == -1:
-        return []
-
-    linhas = texto[inicio:].split('\n')
-    return extrair_produtos_de_linhas(linhas, nome_arquivo, data_emissao)
-
 @app.route("/upload", methods=["POST"])
 def upload():
     if 'arquivos' not in request.files:
-        return jsonify([])
+        return jsonify({"erro": "Nenhum arquivo enviado"}), 400
 
     arquivos = request.files.getlist("arquivos")
     all_dados = []
 
     for arquivo in arquivos:
+        nome_arquivo = arquivo.filename
         try:
-            with pdfplumber.open(arquivo) as pdf:
-                texto = "\n".join([page.extract_text() or "" for page in pdf.pages])
-            dados = extrair_dados(texto, arquivo.filename)
-            all_dados.extend(dados)
+            # Salvar temporariamente o PDF para leitura pelo Camelot
+            temp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+            arquivo.save(temp_pdf.name)
+
+            # Extrair tabelas com Camelot
+            tabelas = camelot.read_pdf(temp_pdf.name, pages='all', strip_text='\n')
+
+            for tabela in tabelas:
+                df = tabela.df
+
+                # Identificar a linha de cabeçalho corretamente
+                cabecalho_idx = df[df.apply(lambda x: 'DESCRIÇÃO' in ''.join(x), axis=1)].index
+                if not cabecalho_idx.empty:
+                    header_row = cabecalho_idx[0]
+                    df.columns = df.iloc[header_row]
+                    df = df.iloc[header_row + 1:]
+
+                    # Adicionar nome do arquivo
+                    df['arquivo'] = nome_arquivo
+                    all_dados.append(df)
+
         except Exception as e:
-            print(f"Erro ao processar {arquivo.filename}: {str(e)}")
+            print(f"Erro ao processar {nome_arquivo}: {str(e)}")
             continue
 
     if not all_dados:
         return jsonify([])
 
-    colunas_ordenadas = [
-        'codigo', 'descricao', 'ncm', 'cst', 'cfop', 'unid', 'qtd',
-        'vlr_unit', 'vlr_desc', 'vlr_total', 'bc_icms', 'vlr_icms',
-        'vlr_ipi', 'aliq_icms', 'aliq_ipi', 'arquivo', 'data_emissao'
-    ]
+    df_final = pd.concat(all_dados, ignore_index=True)
 
-    df = pd.DataFrame(all_dados)
-    for col in colunas_ordenadas:
-        if col not in df.columns:
-            df[col] = ""
-
-    df = df[colunas_ordenadas]
-
+    # Salvar arquivo Excel temporariamente
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
-    df.to_excel(temp_file.name, index=False)
+    df_final.to_excel(temp_file.name, index=False)
     app.config["ULTIMO_ARQUIVO"] = temp_file.name
 
-    return jsonify(df.to_dict(orient="records"))
+    return df_final.to_json(orient="records", force_ascii=False)
 
 @app.route("/baixar")
 def baixar_excel():
@@ -149,7 +70,7 @@ def baixar_excel():
 
 @app.route("/")
 def home():
-    return "✅ API NFe está no ar!"
+    return "✅ API NFe com Camelot está ativa!"
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
