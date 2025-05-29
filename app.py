@@ -9,12 +9,12 @@ import os
 app = Flask(__name__)
 CORS(app)
 
-# Função para extrair a data da emissão
+# Extrai a data de emissão da nota
 def extrair_data_emissao(texto):
     match = re.search(r'DATA DA EMISS[AÃ]O\s*(\d{2}/\d{2}/\d{4})', texto)
     return match.group(1) if match else ""
 
-# Função para extrair produtos
+# Função principal de extração
 def extrair_dados(texto, nome_arquivo, data_emissao):
     linhas = texto.split('\n')
     dados = []
@@ -26,7 +26,7 @@ def extrair_dados(texto, nome_arquivo, data_emissao):
         partes = linha.split()
         if len(partes) >= 16:
             try:
-                # Tenta extrair os 15 últimos campos
+                # 15 últimos campos fixos
                 aliq_ipi   = partes[-1]
                 aliq_icms  = partes[-2]
                 vlr_ipi    = partes[-3]
@@ -42,21 +42,21 @@ def extrair_dados(texto, nome_arquivo, data_emissao):
                 ncm        = partes[-13]
                 descricao  = " ".join(partes[:-15])
 
-                # Se próxima linha parecer continuação da descrição (não começa com código nem com NCM)
+                # Se próxima linha parece continuação da descrição
                 if i + 1 < len(linhas):
-                    prox = linhas[i + 1].strip()
-                    if prox and not re.match(r"^\d{6,}", prox) and not re.search(r"\d{8}", prox):
-                        descricao += " " + prox
-                        i += 1  # Avança uma linha
+                    prox_linha = linhas[i + 1].strip()
+                    if prox_linha and not re.search(r"\d{8}", prox_linha) and not prox_linha.split()[0].isdigit():
+                        descricao += " " + prox_linha
+                        i += 1
 
-                # Código pode vir no início da descrição ou separado
+                # Tenta extrair o código no início
                 cod_match = re.match(r"^(\d{5,})\s+(.*)", descricao)
                 if cod_match:
                     codigo = cod_match.group(1)
                     descricao = cod_match.group(2)
                 else:
                     codigo = ""
-                
+
                 dados.append({
                     "codigo": codigo,
                     "descricao": descricao,
