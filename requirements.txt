@@ -1,5 +1,6 @@
 flask
 flask-cors
-pandas
+pdfplumber
 camelot-py[cv]
+pandas
 openpyxl
