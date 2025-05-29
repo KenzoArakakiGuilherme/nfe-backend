@@ -29,14 +29,14 @@ def upload():
             for tabela in tabelas:
                 df = tabela.df
 
-                # Identificar a linha de cabeçalho corretamente
+                # Procurar linha com cabeçalho 'DESCRIÇÃO'
                 cabecalho_idx = df[df.apply(lambda x: 'DESCRIÇÃO' in ''.join(x), axis=1)].index
                 if not cabecalho_idx.empty:
                     header_row = cabecalho_idx[0]
                     df.columns = df.iloc[header_row]
                     df = df.iloc[header_row + 1:]
 
-                    # Adicionar nome do arquivo
+                    # Adicionar nome do arquivo como referência
                     df['arquivo'] = nome_arquivo
                     all_dados.append(df)
 
@@ -49,7 +49,7 @@ def upload():
 
     df_final = pd.concat(all_dados, ignore_index=True)
 
-    # Salvar arquivo Excel temporariamente
+    # Salvar Excel
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
     df_final.to_excel(temp_file.name, index=False)
     app.config["ULTIMO_ARQUIVO"] = temp_file.name
@@ -75,4 +75,3 @@ def home():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
-
