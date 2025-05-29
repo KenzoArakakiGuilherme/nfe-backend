@@ -21,49 +21,50 @@ def extrair_data_emissao(texto):
 
 def extrair_dados(texto, nome_arquivo, data_emissao):
     linhas = texto.split('\n')
-    dados_produtos = []
-
-    linhas_normalizadas = [normalizar(l) for l in linhas]
-    try:
-        idx_inicio = next(
-            i for i, linha in enumerate(linhas_normalizadas)
-            if "DADOS DO PRODUTO" in linha
-        )
-        linhas = linhas[idx_inicio + 1:]
-    except StopIteration:
-        return []
-
+    dados = []
     i = 0
-    while i < len(linhas) - 3:
-        linha1 = linhas[i].strip()
-        linha2 = linhas[i+1].strip()
-        linha3 = linhas[i+2].strip()
-        linha4 = linhas[i+3].strip()  # Código do produto
 
-        partes_tecnicas = linha3.split()
+    while i < len(linhas):
+        linha = linhas[i].strip()
 
-        if len(partes_tecnicas) == 15 and sum(1 for p in partes_tecnicas if "," in p or p.replace('.', '').isdigit()) >= 10:
-            descricao = f"{linha1} {linha2}".strip()
+        # Ignora linhas muito curtas
+        if len(linha) < 10:
+            i += 1
+            continue
+
+        partes = linha.split()
+
+        # Verifica se essa linha tem pelo menos 15 colunas (linha técnica)
+        if len(partes) >= 15:
             try:
-                ncm         = partes_tecnicas[0]
-                cfop        = partes_tecnicas[1]
-                cst         = partes_tecnicas[2]
-                unid        = partes_tecnicas[3]
-                qtd         = partes_tecnicas[4]
-                vlr_unit    = partes_tecnicas[5]
-                vlr_total   = partes_tecnicas[6]
-                bc_icms     = partes_tecnicas[7]
-                vlr_icms    = partes_tecnicas[8]
-                vlr_ipi     = partes_tecnicas[9]
-                aliq_icms   = partes_tecnicas[10]
-                aliq_ipi    = partes_tecnicas[11]
-                vlr_desc    = partes_tecnicas[12]
-                dummy1      = partes_tecnicas[13]
-                dummy2      = partes_tecnicas[14]
+                # Tenta extrair campos técnicos
+                codigo      = partes[0]
+                ncm         = partes[-15]
+                cst         = partes[-14]
+                cfop        = partes[-13]
+                unid        = partes[-12]
+                qtd         = partes[-11]
+                vlr_unit    = partes[-10]
+                vlr_desc    = partes[-9]
+                vlr_total   = partes[-8]
+                bc_icms     = partes[-7]
+                vlr_icms    = partes[-6]
+                vlr_ipi     = partes[-5]
+                aliq_icms   = partes[-4]
+                aliq_ipi    = partes[-3]
 
-                codigo = linha4.strip()
+                # A descrição vem entre o código e os campos técnicos
+                descricao_partes = partes[1: len(partes) - 15]
+                descricao = " ".join(descricao_partes)
 
-                dados_produtos.append({
+                # Verifica se a próxima linha é continuação da descrição
+                if i + 1 < len(linhas):
+                    prox_linha = linhas[i + 1].strip()
+                    if prox_linha and not re.match(r"^\d{6,}", prox_linha):
+                        descricao += " " + prox_linha.strip()
+                        i += 1  # Pula essa linha adicional
+
+                dados.append({
                     "codigo": codigo,
                     "descricao": descricao,
                     "ncm": ncm,
@@ -82,13 +83,12 @@ def extrair_dados(texto, nome_arquivo, data_emissao):
                     "arquivo": nome_arquivo,
                     "data_emissao": data_emissao
                 })
-                i += 4
-                continue
             except Exception:
                 pass
+
         i += 1
 
-    return dados_produtos
+    return dados
 
 @app.route("/upload", methods=["POST"])
 def upload():
