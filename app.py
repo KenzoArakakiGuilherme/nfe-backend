@@ -9,38 +9,55 @@ import os
 app = Flask(__name__)
 CORS(app)
 
+# Função para extrair a data da emissão
 def extrair_data_emissao(texto):
-    match = re.search(r"\b\d{2}/\d{2}/\d{4}\b", texto)
-    return match.group(0) if match else "N/A"
+    match = re.search(r'DATA DA EMISS[AÃ]O\s*(\d{2}/\d{2}/\d{4})', texto)
+    return match.group(1) if match else ""
 
-def extrair_dados(texto, nome_arquivo):
+# Função para extrair produtos
+def extrair_dados(texto, nome_arquivo, data_emissao):
     linhas = texto.split('\n')
-    dados_produtos = []
-    data_emissao = extrair_data_emissao(texto)
+    dados = []
+    i = 0
 
-    for linha in linhas:
-        if re.match(r"^\d{6,}", linha) and "," in linha:
-            partes = linha.strip().split()
+    while i < len(linhas):
+        linha = linhas[i].strip()
+
+        partes = linha.split()
+        if len(partes) >= 16:
             try:
-                aliq_ipi    = partes[-1]
-                aliq_icms   = partes[-2]
-                vlr_ipi     = partes[-3]
-                vlr_icms    = partes[-4]
-                bc_icms     = partes[-5]
-                vlr_total   = partes[-6]
-                vlr_desc    = partes[-7]
-                vlr_unit    = partes[-8]
-                qtd         = partes[-9]
-                unid        = partes[-10]
-                cfop        = partes[-11]
-                cst         = partes[-12]
-                ncm         = partes[-13]
-                codigo      = partes[0]
-                descricao   = " ".join(partes[1:-13])
+                # Tenta extrair os 15 últimos campos
+                aliq_ipi   = partes[-1]
+                aliq_icms  = partes[-2]
+                vlr_ipi    = partes[-3]
+                vlr_icms   = partes[-4]
+                bc_icms    = partes[-5]
+                vlr_total  = partes[-6]
+                vlr_desc   = partes[-7]
+                vlr_unit   = partes[-8]
+                qtd        = partes[-9]
+                unid       = partes[-10]
+                cfop       = partes[-11]
+                cst        = partes[-12]
+                ncm        = partes[-13]
+                descricao  = " ".join(partes[:-15])
 
-                dados_produtos.append({
-                    "arquivo": nome_arquivo,
-                    "data_emissao": data_emissao,
+                # Se próxima linha parecer continuação da descrição (não começa com código nem com NCM)
+                if i + 1 < len(linhas):
+                    prox = linhas[i + 1].strip()
+                    if prox and not re.match(r"^\d{6,}", prox) and not re.search(r"\d{8}", prox):
+                        descricao += " " + prox
+                        i += 1  # Avança uma linha
+
+                # Código pode vir no início da descrição ou separado
+                cod_match = re.match(r"^(\d{5,})\s+(.*)", descricao)
+                if cod_match:
+                    codigo = cod_match.group(1)
+                    descricao = cod_match.group(2)
+                else:
+                    codigo = ""
+                
+                dados.append({
                     "codigo": codigo,
                     "descricao": descricao,
                     "ncm": ncm,
@@ -55,11 +72,14 @@ def extrair_dados(texto, nome_arquivo):
                     "vlr_icms": vlr_icms,
                     "vlr_ipi": vlr_ipi,
                     "aliq_icms": aliq_icms,
-                    "aliq_ipi": aliq_ipi
+                    "aliq_ipi": aliq_ipi,
+                    "arquivo": nome_arquivo,
+                    "data_emissao": data_emissao
                 })
-            except:
-                continue
-    return dados_produtos
+            except Exception:
+                pass
+        i += 1
+    return dados
 
 @app.route("/upload", methods=["POST"])
 def upload():
@@ -67,13 +87,23 @@ def upload():
     all_dados = []
 
     for arquivo in arquivos:
-        nome = arquivo.filename
         with pdfplumber.open(arquivo) as pdf:
-            texto = "".join([page.extract_text() for page in pdf.pages])
-        dados = extrair_dados(texto, nome)
+            texto = "\n".join([page.extract_text() for page in pdf.pages])
+        data_emissao = extrair_data_emissao(texto)
+        nome_arquivo = arquivo.filename
+        dados = extrair_dados(texto, nome_arquivo, data_emissao)
         all_dados.extend(dados)
 
-    df = pd.DataFrame(all_dados)
+    colunas_ordenadas = [
+        "codigo", "descricao", "ncm", "cst", "cfop", "unid", "qtd",
+        "vlr_unit", "vlr_desc", "vlr_total", "bc_icms", "vlr_icms",
+        "vlr_ipi", "aliq_icms", "aliq_ipi", "arquivo", "data_emissao"
+    ]
+
+    if not all_dados:
+        return jsonify([])
+
+    df = pd.DataFrame(all_dados)[colunas_ordenadas]
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
     df.to_excel(temp_file.name, index=False)
     app.config["ULTIMO_ARQUIVO"] = temp_file.name
